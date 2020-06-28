@@ -18,6 +18,7 @@ parser = argparse.ArgumentParser(description="Search a large directory tree")
 parser.add_argument("-r", "--regex", help="Allow any regular expression to be entered", action="store_true")
 parser.add_argument("-v", "--verbose", help="Print file names as they're indexed as opposed to a counter",
                     action="store_true")
+parser.add_argument("-i", "--index", help="Delete and regenerate the index database", action="store_true")
 group = parser.add_argument_group("File Options")
 group.add_argument("-c", "--csv", help="Store/search the contents of csv files in database", action="store_true")
 group.add_argument("-p", "--pdf", help="Store/search the contents of pdf files in database", action="store_true")
@@ -29,6 +30,8 @@ Base = declarative_base()
 
 generateFilesList = False
 
+if args.index:
+    os.remove("BigSearchDB.sqlite")
 if not os.path.exists("BigSearchDB.sqlite"):
     generateFilesList = True  # Generate the file list for a new database
 
@@ -47,9 +50,9 @@ class FilePath(Base):
     def __repr__(self):
         return f"<FilePath(path={self.name})>"
 
-    def __init__(self, path, name):
+    def __init__(self, path, filename):
         self.path = path
-        self.name = name
+        self.name = filename
 
 
 class CsvFile(Base):
@@ -64,10 +67,9 @@ class CsvFile(Base):
     def __repr__(self):
         return f"<CsvFile(path={self.path}>"
 
-    def __init__(self, path):
+    def __init__(self, path, content):
         self.path = path
-        with open(self.path, "r") as openFile:
-            self.content = openFile.read()
+        self.content = content
 
 
 class PdfFile(Base):
@@ -82,21 +84,9 @@ class PdfFile(Base):
     def __repr__(self):
         return f"<PdfFile(path={self.path}>"
 
-    def __init__(self, path):
+    def __init__(self, path, content):
         self.path = path
-        content = ""
-        try:
-            pdfFile = PyPDF2.PdfFileReader(path, strict=False)
-            pdfPages = pdfFile.numPages
-            for n in range(0, pdfPages):
-                page = pdfFile.getPage(i)
-                pageText = page.extractText()
-                content += pageText
-            self.content = content
-        except:  # This is too broad of an exception clause. Too bad!
-            self.content = ""
-            if args.verbose:
-                print(f"{self.path} failed to read!")
+        self.content = content
 
 
 Base.metadata.create_all(engine)
@@ -122,21 +112,40 @@ if generateFilesList:
             )
             # Add csv file to database if enabled
             if args.csv and newPathExtension == ".csv":
-                session.add(
-                    CsvFile(newPath)
-                )
+                try:
+                    with open(newPath, "r") as file:
+                        csvContent = file.read()
+                except:  # This is too broad of an except clause. Too bad!
+                    csvContent = ""
+                finally:
+                    session.add(
+                        CsvFile(newPath, csvContent)
+                    )
             # Add pdf file content to database if enabled
             if args.pdf and newPathExtension == ".pdf":
-                session.add(
-                    PdfFile(newPath)
-                )
+                try:
+                    pdfFile = PyPDF2.PdfFileReader(newPath)
+                    pdfPages = pdfFile.numPages
+                    pdfContent = ""
+                    for n in range(0, pdfPages):
+                        page = pdfFile.getPage(n)
+                        pageText = page.extractText()
+                        pdfContent += pageText
+                        # Remove whitespace for better searching
+                        pdfContent = pdfContent.strip().replace("\n", "")
+                except:  # This is too broad of an except clause. Too bad!
+                    pdfContent = ""
+                finally:
+                    session.add(
+                        PdfFile(newPath, pdfContent)
+                    )
             # Commit to the database every 10,000 files to make sure the computer doesn't run out of memory
             if i % 10000 == 0:
                 print("\nWriting content to database file to save memory. This might take a while.")
                 session.commit()
     print("\nWriting index to database file. This might take a while.")
     session.commit()
-    print(f"Indexing Complete")
+    print("Indexing Complete")
 
 # Search the database
 if args.regex:
