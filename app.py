@@ -4,6 +4,7 @@ import argparse
 # File processing imports
 import csv
 import PyPDF2
+from PyPDF2 import utils
 import re
 
 # SQL Alchemy imports
@@ -84,13 +85,18 @@ class PdfFile(Base):
     def __init__(self, path):
         self.path = path
         content = ""
-        pdfFile = PyPDF2.PdfFileReader(path)
-        pdfPages = pdfFile.numPages
-        for n in range(0, pdfPages):
-            page = pdfFile.getPage(i)
-            pageText = page.extractText()
-            content += pageText
-        self.content = content
+        try:
+            pdfFile = PyPDF2.PdfFileReader(path)
+            pdfPages = pdfFile.numPages
+            for n in range(0, pdfPages):
+                page = pdfFile.getPage(i)
+                pageText = page.extractText()
+                content += pageText
+            self.content = content
+        except:  # This is too broad of an exception clause. Too bad!
+            self.content = ""
+            if args.verbose:
+                print(f"{self.path} failed to read!")
 
 
 Base.metadata.create_all(engine)
@@ -105,9 +111,9 @@ if generateFilesList:
         for name in files:
             i += 1
             if args.verbose:
-                print(f"Indexed {i} files: {name}")
+                print(f"Indexed {i:,d} files: {name}")
             else:
-                print(f"Indexed {i} files", end="\r")
+                print(f"Indexed {i:,d} files", end="\r")
             newPath = os.path.join(root, name)
             newPathName, newPathExtension = os.path.splitext(newPath)
             # Add file path to database
@@ -124,6 +130,10 @@ if generateFilesList:
                 session.add(
                     PdfFile(newPath)
                 )
+            # Commit to the database every 10,000 files to make sure the computer doesn't run out of memory
+            if i % 10000 == 0:
+                print("\nWriting content to database file to save memory. This might take a while.")
+                session.commit()
     print("\nWriting index to database file. This might take a while.")
     session.commit()
     print(f"Indexing Complete")
