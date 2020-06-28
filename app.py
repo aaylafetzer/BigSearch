@@ -86,7 +86,7 @@ class PdfFile(Base):
         self.path = path
         content = ""
         try:
-            pdfFile = PyPDF2.PdfFileReader(path)
+            pdfFile = PyPDF2.PdfFileReader(path, strict=False)
             pdfPages = pdfFile.numPages
             for n in range(0, pdfPages):
                 page = pdfFile.getPage(i)
